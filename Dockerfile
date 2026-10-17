@@ -3,7 +3,13 @@
 # server/migrations al arrancar y sirve la app web en la misma dirección.
 
 # 1) App Flutter para web
-FROM ghcr.io/cirruslabs/flutter:stable AS web
+FROM debian:bookworm-slim AS web
+ARG FLUTTER_VERSION=3.47.7
+RUN apt-get update && apt-get install -y --no-install-recommends git curl unzip xz-utils zip file ca-certificates && rm -rf /var/lib/apt/lists/*
+ENV PATH=/opt/flutter/bin:$PATH CI=true
+RUN git config --global --add safe.directory /opt/flutter \
+ && git clone --depth 1 --branch ${FLUTTER_VERSION} https://github.com/flutter/flutter.git /opt/flutter \
+ && flutter precache --web
 WORKDIR /app
 COPY pubspec.yaml pubspec.lock ./
 RUN flutter pub get
