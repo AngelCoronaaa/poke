@@ -1,0 +1,16 @@
+name: pokedex_server
+description: API de cuentas de entrenador para la Pokédex (PostgreSQL).
+publish_to: none
+
+environment:
+  sdk: ^3.9.0
+dependencies:
+  bcrypt: ^1.2.0
+  crypto: ^3.0.7
+  postgres: ^3.5.20
+  shelf: ^1.4.3
+  shelf_router: ^1.1.5
+  shelf_static: ^1.2.0
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.33.0

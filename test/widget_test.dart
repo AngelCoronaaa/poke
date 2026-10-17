@@ -9,7 +9,10 @@ import 'package:mi_app/app/app_controller.dart';
 import 'package:mi_app/main.dart';
 import 'package:mi_app/models/pokeball_style.dart';
 import 'package:mi_app/models/pokemon.dart';
+import 'package:mi_app/models/region.dart';
+import 'package:mi_app/models/trainer.dart';
 import 'package:mi_app/models/resumen.dart';
+import 'package:mi_app/services/auth_service.dart';
 import 'package:mi_app/services/pokemon_service.dart';
 
 Map<String, dynamic> _json(int id, String name, List<String> types) => {
@@ -97,10 +100,89 @@ Future<void> _esperar(WidgetTester tester, [int pasos = 12]) async {
   }
 }
 
+/// Simula el servidor de cuentas (PostgreSQL) en memoria.
+class _FakeAuth extends AuthService {
+  _FakeAuth({bool conMisty = true}) {
+    if (conMisty) {
+      _cuentas['misty'] = ('agua123', _misty);
+      _tokens['tok-misty'] = 'misty';
+    }
+  }
+
+  final _cuentas = <String, (String, Trainer)>{};
+  final _tokens = <String, String>{};
+  final logouts = <String>[];
+
+  bool existe(String usuario) => _cuentas.containsKey(usuario);
+
+  @override
+  Future<Sesion> registrar({
+    required String nombre,
+    required String password,
+    required Companero companero,
+    required Region region,
+  }) async {
+    final clave = nombre.toLowerCase();
+    if (_cuentas.containsKey(clave)) {
+      throw const CuentaException(
+        'Ese nombre de entrenador ya está registrado',
+      );
+    }
+    final trainer = Trainer(
+      nombre: nombre,
+      trainerId: '00001',
+      companero: companero,
+      region: region,
+      desde: DateTime(2026, 10, 17),
+    );
+    _cuentas[clave] = (password, trainer);
+    return _abrir(clave);
+  }
+
+  @override
+  Future<Sesion> iniciarSesion({
+    required String nombre,
+    required String password,
+  }) async {
+    final cuenta = _cuentas[nombre.toLowerCase()];
+    if (cuenta == null || cuenta.$1 != password) {
+      throw const CuentaException('Nombre o contraseña incorrectos');
+    }
+    return _abrir(nombre.toLowerCase());
+  }
+
+  @override
+  Future<Trainer?> validarSesion(String token) async {
+    final usuario = _tokens[token];
+    return usuario == null ? null : _cuentas[usuario]!.$2;
+  }
+
+  @override
+  Future<void> cerrarSesion(String token) async {
+    logouts.add(token);
+    _tokens.remove(token);
+  }
+
+  Sesion _abrir(String usuario) {
+    final token = 'tok-${_tokens.length + 1}';
+    _tokens[token] = usuario;
+    return (token: token, trainer: _cuentas[usuario]!.$2);
+  }
+}
+
+final _misty = Trainer(
+  nombre: 'Misty',
+  trainerId: '04821',
+  companero: Companero.porId(7),
+  region: Region.porNombre('Kanto'),
+  desde: DateTime(2026, 10, 1),
+);
+
 Future<(AppController, SharedPreferences)> _arrancar(
   WidgetTester tester, {
   Map<String, Object> guardado = const {},
   _FakeService? service,
+  _FakeAuth? auth,
 }) async {
   tester.view.physicalSize = const Size(430, 932) * 3;
   tester.view.devicePixelRatio = 3;
@@ -108,7 +190,8 @@ Future<(AppController, SharedPreferences)> _arrancar(
 
   SharedPreferences.setMockInitialValues(guardado);
   final prefs = await SharedPreferences.getInstance();
-  final controller = AppController(prefs);
+  final controller = AppController(prefs, auth ?? _FakeAuth());
+  await controller.validarSesion();
   await tester.pumpWidget(
     PokedexApp(
       controller: controller,
@@ -130,14 +213,21 @@ Future<void> _irA(WidgetTester tester, String texto) async {
   await tester.pump();
 }
 
-final _sesionGuardada = {
-  'trainer': jsonEncode({
-    'nombre': 'Misty',
-    'trainerId': '04821',
-    'companero': 7,
-    'region': 'Kanto',
-    'desde': '2026-10-01T10:00:00.000',
-  }),
+/// Hace scroll hasta el elemento (el formulario puede ser más alto que la
+/// pantalla) y lo toca.
+Future<void> _tocar(WidgetTester tester, Finder finder) async {
+  await tester.ensureVisible(finder);
+  await tester.pump();
+  await tester.tap(finder);
+}
+
+/// Lo que queda guardado en el dispositivo tras entrar como Misty.
+Map<String, Object> _cuentaMisty({bool sesionActiva = true}) => {
+  'ultimo_entrenador': 'Misty',
+  if (sesionActiva) ...{
+    'auth_token': 'tok-misty',
+    'auth_trainer': jsonEncode(_misty.toJson()),
+  },
 };
 
 void main() {
@@ -255,41 +345,103 @@ void main() {
     });
   });
 
-  testWidgets('Sin sesión se muestra el login, no un Pokémon', (tester) async {
+  testWidgets('Sin cuentas se muestra el registro, no un Pokémon', (
+    tester,
+  ) async {
     final service = _FakeService();
     await _arrancar(tester, service: service);
 
-    expect(find.text('Inicia sesión como entrenador Pokémon'), findsOneWidget);
-    expect(find.text('Comenzar aventura'), findsOneWidget);
+    expect(find.text('Crea tu cuenta de entrenador Pokémon'), findsOneWidget);
+    expect(find.text('Crear cuenta y comenzar'), findsOneWidget);
     expect(service.pedidos, isEmpty);
   });
 
-  testWidgets('Login valida el nombre y abre la pantalla de inicio', (
+  testWidgets('El registro valida, guarda la cuenta y abre el inicio', (
     tester,
   ) async {
-    final (controller, prefs) = await _arrancar(tester);
+    final auth = _FakeAuth();
+    final (controller, prefs) = await _arrancar(tester, auth: auth);
+    final campos = find.byType(TextFormField);
 
-    await tester.tap(find.text('Comenzar aventura'));
+    await _tocar(tester, find.text('Crear cuenta y comenzar'));
     await _esperar(tester, 2);
     expect(find.text('Escribe al menos 3 caracteres'), findsOneWidget);
+    expect(find.text('Escribe tu contraseña'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextFormField), 'Ash');
-    await tester.tap(find.text('Charmander'));
-    await tester.tap(find.text('Johto'));
-    await tester.tap(find.text('Comenzar aventura'));
+    await tester.enterText(campos.at(0), 'Ash');
+    await tester.enterText(campos.at(1), 'pika');
+    await tester.enterText(campos.at(2), 'otra');
+    await _tocar(tester, find.text('Crear cuenta y comenzar'));
+    await _esperar(tester, 2);
+    expect(find.text('Usa al menos 6 caracteres'), findsOneWidget);
+    expect(find.text('Las contraseñas no coinciden'), findsOneWidget);
+
+    await tester.enterText(campos.at(1), 'pikachu');
+    await tester.enterText(campos.at(2), 'pikachu');
+    await _tocar(tester, find.text('Charmander'));
+    await _tocar(tester, find.text('Johto'));
+    await _tocar(tester, find.text('Crear cuenta y comenzar'));
     await _esperar(tester, 15);
 
     expect(find.text('¡Hola, Ash!'), findsOneWidget);
     expect(find.text('Entrenador de Johto'), findsOneWidget);
-    expect(find.text('LICENCIA DE ENTRENADOR'), findsOneWidget);
     expect(controller.trainer?.companero.nombre, 'Charmander');
-    expect(prefs.getString('trainer'), contains('"nombre":"Ash"'));
+
+    expect(auth.existe('ash'), isTrue); // la cuenta quedó en el servidor
+    expect(prefs.getString('auth_token'), isNotNull);
+    // En el dispositivo nunca se guarda la contraseña.
+    for (final clave in prefs.getKeys()) {
+      expect('${prefs.get(clave)}', isNot(contains('pikachu')));
+    }
+  });
+
+  testWidgets('Iniciar sesión pide la contraseña correcta', (tester) async {
+    await _arrancar(tester, guardado: _cuentaMisty(sesionActiva: false));
+    final campos = find.byType(TextFormField);
+
+    expect(find.text('Inicia sesión como entrenador Pokémon'), findsOneWidget);
+
+    await tester.enterText(campos.at(0), 'Brock');
+    await tester.enterText(campos.at(1), 'agua123');
+    await _tocar(tester, find.text('Iniciar sesión').last);
+    await _esperar(tester, 3);
+    expect(find.text('Nombre o contraseña incorrectos'), findsOneWidget);
+
+    await tester.enterText(campos.at(0), 'misty');
+    await tester.enterText(campos.at(1), 'fuego99');
+    await _tocar(tester, find.text('Iniciar sesión').last);
+    await _esperar(tester, 3);
+    expect(find.text('Nombre o contraseña incorrectos'), findsOneWidget);
+
+    await tester.enterText(campos.at(1), 'agua123');
+    await _tocar(tester, find.text('Iniciar sesión').last);
+    await _esperar(tester, 15);
+    expect(find.text('¡Hola, Misty!'), findsOneWidget);
+    expect(find.text('04821'), findsOneWidget);
+  });
+
+  testWidgets('No se puede registrar un nombre que ya existe', (tester) async {
+    await _arrancar(tester, guardado: _cuentaMisty(sesionActiva: false));
+    final campos = find.byType(TextFormField);
+
+    await tester.tap(find.text('Crear cuenta'));
+    await _esperar(tester, 3);
+    await tester.enterText(campos.at(0), 'MISTY');
+    await tester.enterText(campos.at(1), 'otra123');
+    await tester.enterText(campos.at(2), 'otra123');
+    await _tocar(tester, find.text('Crear cuenta y comenzar'));
+    await _esperar(tester, 3);
+
+    expect(
+      find.text('Ese nombre de entrenador ya está registrado'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('Con sesión guardada abre el inicio con datos generales', (
     tester,
   ) async {
-    await _arrancar(tester, guardado: _sesionGuardada);
+    await _arrancar(tester, guardado: _cuentaMisty());
 
     expect(find.text('¡Hola, Misty!'), findsOneWidget);
     expect(find.text('04821'), findsOneWidget);
@@ -301,7 +453,7 @@ void main() {
 
   testWidgets('Desde el inicio se abre la Pokédex y se navega', (tester) async {
     final service = _FakeService();
-    await _arrancar(tester, guardado: _sesionGuardada, service: service);
+    await _arrancar(tester, guardado: _cuentaMisty(), service: service);
 
     await _irA(tester, 'Pokédex');
     await tester.tap(find.text('Pokédex'));
@@ -324,10 +476,10 @@ void main() {
     tester,
   ) async {
     final service = _FakeService();
-    await _arrancar(tester, guardado: _sesionGuardada, service: service);
+    await _arrancar(tester, guardado: _cuentaMisty(), service: service);
 
     await _irA(tester, 'Johto');
-    await tester.tap(find.text('Johto'));
+    await _tocar(tester, find.text('Johto'));
     await _esperar(tester);
 
     expect(service.pedidos.last, '152');
@@ -337,7 +489,7 @@ void main() {
   testWidgets('La galería de pokébolas cambia de tipo y muestra la API', (
     tester,
   ) async {
-    await _arrancar(tester, guardado: _sesionGuardada);
+    await _arrancar(tester, guardado: _cuentaMisty());
 
     await _irA(tester, 'Pokéballs 3D');
     await tester.tap(find.text('Pokéballs 3D'));
@@ -359,7 +511,7 @@ void main() {
   testWidgets('El aspecto elegido se guarda', (tester) async {
     final (controller, prefs) = await _arrancar(
       tester,
-      guardado: _sesionGuardada,
+      guardado: _cuentaMisty(),
     );
 
     await tester.tap(find.byTooltip('Aspecto'));
@@ -373,15 +525,38 @@ void main() {
     expect(Theme.of(ctx).brightness, Brightness.dark);
   });
 
-  testWidgets('Cerrar sesión regresa al login', (tester) async {
-    final (_, prefs) = await _arrancar(tester, guardado: _sesionGuardada);
+  testWidgets('Cerrar sesión conserva la cuenta para volver a entrar', (
+    tester,
+  ) async {
+    final auth = _FakeAuth();
+    final (_, prefs) = await _arrancar(
+      tester,
+      guardado: _cuentaMisty(),
+      auth: auth,
+    );
 
     await tester.tap(find.byTooltip('Cerrar sesión'));
     await _esperar(tester, 3);
     await tester.tap(find.text('Cerrar sesión').last);
     await _esperar(tester, 8);
 
-    expect(find.text('Comenzar aventura'), findsOneWidget);
-    expect(prefs.getString('trainer'), isNull);
+    expect(find.text('Inicia sesión como entrenador Pokémon'), findsOneWidget);
+    expect(prefs.getString('auth_token'), isNull);
+    expect(auth.logouts, ['tok-misty']);
+    expect(auth.existe('misty'), isTrue);
+    // El nombre queda escrito para volver a entrar.
+    expect(find.widgetWithText(TextFormField, 'Misty'), findsOneWidget);
+  });
+
+  testWidgets('Una sesión expirada en el servidor regresa al login', (
+    tester,
+  ) async {
+    await _arrancar(
+      tester,
+      guardado: {..._cuentaMisty(), 'auth_token': 'tok-vencido'},
+    );
+
+    expect(find.text('Inicia sesión como entrenador Pokémon'), findsOneWidget);
+    expect(find.text('¡Hola, Misty!'), findsNothing);
   });
 }

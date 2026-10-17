@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../app/app_controller.dart';
 import '../app/app_scope.dart';
 import '../models/pokeball_style.dart';
 import '../models/region.dart';
@@ -20,15 +21,38 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nombre = TextEditingController();
+  late final _nombre = TextEditingController(text: _ultimo);
+  final _password = TextEditingController();
+  final _confirmar = TextEditingController();
+  late final String? _ultimo = AppScope.read(context)
+      .controller
+      .ultimoEntrenador;
+  // Si ya se entró antes en este dispositivo, abre en "Iniciar sesión".
+  late bool _registro = _ultimo == null;
   Companero _companero = Companero.todos.first;
   Region _region = Region.todas.first;
+  bool _verPassword = false;
   bool _entrando = false;
+  String? _error;
 
   @override
   void dispose() {
     _nombre.dispose();
+    _password.dispose();
+    _confirmar.dispose();
     super.dispose();
+  }
+
+  void _cambiarModo(bool registro) {
+    if (registro == _registro) return;
+    HapticFeedback.selectionClick();
+    _formKey.currentState?.reset();
+    _password.clear();
+    _confirmar.clear();
+    setState(() {
+      _registro = registro;
+      _error = null;
+    });
   }
 
   String? _validarNombre(String? valor) {
@@ -40,20 +64,49 @@ class _LoginScreenState extends State<LoginScreen> {
     return null;
   }
 
+  String? _validarPassword(String? valor) {
+    final password = valor ?? '';
+    if (password.isEmpty) return 'Escribe tu contraseña';
+    if (_registro && password.length < 6) {
+      return 'Usa al menos 6 caracteres';
+    }
+    return null;
+  }
+
+  String? _validarConfirmacion(String? valor) =>
+      valor != _password.text ? 'Las contraseñas no coinciden' : null;
+
   Future<void> _entrar() async {
     FocusScope.of(context).unfocus();
+    setState(() => _error = null);
     if (!_formKey.currentState!.validate()) return;
 
-    HapticFeedback.mediumImpact();
+    final controller = AppScope.read(context).controller;
     setState(() => _entrando = true);
-    // La pokébola acelera su giro antes de entrar.
-    await Future<void>.delayed(const Duration(milliseconds: 900));
-    if (!mounted) return;
-    await AppScope.read(context).controller.iniciarSesion(
-      nombre: _nombre.text,
-      companero: _companero,
-      region: _region,
-    );
+    try {
+      if (_registro) {
+        await controller.registrar(
+          nombre: _nombre.text,
+          password: _password.text,
+          companero: _companero,
+          region: _region,
+        );
+      } else {
+        await controller.iniciarSesion(
+          nombre: _nombre.text,
+          password: _password.text,
+        );
+      }
+      HapticFeedback.mediumImpact();
+    } on CuentaException catch (e) {
+      HapticFeedback.heavyImpact();
+      if (mounted) {
+        setState(() {
+          _entrando = false;
+          _error = e.message;
+        });
+      }
+    }
   }
 
   @override
@@ -105,7 +158,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'Inicia sesión como entrenador Pokémon',
+                                  _registro
+                                      ? 'Crea tu cuenta de entrenador Pokémon'
+                                      : 'Inicia sesión como entrenador Pokémon',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     color: atenuado,
@@ -116,12 +171,12 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                           const SizedBox(height: 26),
-                          Aparecer(orden: 2, child: _formulario(atenuado)),
+                          Aparecer(orden: 2, child: _formulario()),
                           const SizedBox(height: 16),
                           Aparecer(
                             orden: 3,
                             child: Text(
-                              'Tus datos se guardan solo en este dispositivo.',
+                              'Tu cuenta se guarda en el servidor de la Pokédex.',
                               textAlign: TextAlign.center,
                               style: TextStyle(color: atenuado, fontSize: 12.5),
                             ),
@@ -140,19 +195,24 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _formulario(Color atenuado) {
+  Widget _formulario() {
+    final scheme = Theme.of(context).colorScheme;
+    const duracion = Duration(milliseconds: 350);
+
     return GlassContainer(
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          _SelectorModo(registro: _registro, onCambio: _cambiarModo),
+          const SizedBox(height: 22),
           const _Etiqueta('Nombre de entrenador'),
           TextFormField(
             controller: _nombre,
             maxLength: 12,
             textCapitalization: TextCapitalization.words,
-            textInputAction: TextInputAction.done,
-            onFieldSubmitted: (_) => _entrar(),
+            textInputAction: TextInputAction.next,
+            autofillHints: const [AutofillHints.username],
             validator: _validarNombre,
             decoration: const InputDecoration(
               hintText: 'Ej. Ash',
@@ -160,60 +220,233 @@ class _LoginScreenState extends State<LoginScreen> {
               prefixIcon: Icon(Icons.person_rounded),
             ),
           ),
-          const SizedBox(height: 22),
-          const _Etiqueta('Elige a tu compañero'),
-          SizedBox(
-            height: 118,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              clipBehavior: Clip.none,
-              itemCount: Companero.todos.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 6),
-              itemBuilder: (context, i) {
-                final c = Companero.todos[i];
-                return _OpcionCompanero(
-                  companero: c,
-                  seleccionado: c == _companero,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() => _companero = c);
-                  },
-                );
-              },
+          const SizedBox(height: 16),
+          const _Etiqueta('Contraseña'),
+          TextFormField(
+            controller: _password,
+            obscureText: !_verPassword,
+            textInputAction: _registro
+                ? TextInputAction.next
+                : TextInputAction.done,
+            autofillHints: [
+              _registro ? AutofillHints.newPassword : AutofillHints.password,
+            ],
+            onFieldSubmitted: _registro ? null : (_) => _entrar(),
+            validator: _validarPassword,
+            decoration: InputDecoration(
+              hintText: _registro ? 'Mínimo 6 caracteres' : 'Tu contraseña',
+              prefixIcon: const Icon(Icons.lock_rounded),
+              suffixIcon: IconButton(
+                tooltip: _verPassword
+                    ? 'Ocultar contraseña'
+                    : 'Mostrar contraseña',
+                onPressed: () => setState(() => _verPassword = !_verPassword),
+                icon: Icon(
+                  _verPassword
+                      ? Icons.visibility_off_rounded
+                      : Icons.visibility_rounded,
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: 16),
-          const _Etiqueta('Región de origen'),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final r in Region.todas)
-                _ChipRegion(
-                  region: r,
-                  seleccionada: r == _region,
-                  onTap: () => setState(() => _region = r),
-                ),
-            ],
+          // Campos que solo aparecen al crear la cuenta.
+          AnimatedSize(
+            duration: duracion,
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: _registro
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: 16),
+                      const _Etiqueta('Confirmar contraseña'),
+                      TextFormField(
+                        controller: _confirmar,
+                        obscureText: !_verPassword,
+                        textInputAction: TextInputAction.done,
+                        autofillHints: const [AutofillHints.newPassword],
+                        validator: _validarConfirmacion,
+                        decoration: const InputDecoration(
+                          hintText: 'Repite la contraseña',
+                          prefixIcon: Icon(Icons.lock_outline_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      const _Etiqueta('Elige a tu compañero'),
+                      SizedBox(
+                        height: 118,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          clipBehavior: Clip.none,
+                          itemCount: Companero.todos.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 6),
+                          itemBuilder: (context, i) {
+                            final c = Companero.todos[i];
+                            return _OpcionCompanero(
+                              companero: c,
+                              seleccionado: c == _companero,
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                setState(() => _companero = c);
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const _Etiqueta('Región de origen'),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final r in Region.todas)
+                            _ChipRegion(
+                              region: r,
+                              seleccionada: r == _region,
+                              onTap: () => setState(() => _region = r),
+                            ),
+                        ],
+                      ),
+                    ],
+                  )
+                : const SizedBox(width: double.infinity),
           ),
-          const SizedBox(height: 26),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 250),
+            child: _error == null
+                ? const SizedBox(width: double.infinity, height: 0)
+                : Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        color: scheme.error.withValues(alpha: 0.12),
+                        border: Border.all(
+                          color: scheme.error.withValues(alpha: 0.35),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.error_outline_rounded,
+                            size: 20,
+                            color: scheme.error,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _error!,
+                              style: TextStyle(
+                                color: scheme.error,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+          ),
+          const SizedBox(height: 24),
           GlassButton(
             tint: _companero.color.withValues(alpha: 0.9),
             onPressed: _entrando ? null : _entrar,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.catching_pokemon),
+                Icon(_registro ? Icons.catching_pokemon : Icons.login_rounded),
                 const SizedBox(width: 10),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 250),
-                  child: Text(
-                    _entrando ? 'Abriendo Pokédex…' : 'Comenzar aventura',
-                    key: ValueKey(_entrando),
+                Flexible(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    child: Text(
+                      _entrando
+                          ? 'Abriendo Pokédex…'
+                          : _registro
+                          ? 'Crear cuenta y comenzar'
+                          : 'Iniciar sesión',
+                      key: ValueKey('$_entrando$_registro'),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Control segmentado de vidrio: "Iniciar sesión" / "Crear cuenta".
+class _SelectorModo extends StatelessWidget {
+  const _SelectorModo({required this.registro, required this.onCambio});
+
+  final bool registro;
+  final ValueChanged<bool> onCambio;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final esOscuro = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        color: scheme.onSurface.withValues(alpha: esOscuro ? 0.08 : 0.05),
+      ),
+      child: Stack(
+        children: [
+          AnimatedAlign(
+            alignment: registro ? Alignment.centerRight : Alignment.centerLeft,
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeOutBack,
+            child: FractionallySizedBox(
+              widthFactor: 0.5,
+              heightFactor: 1,
+              child: GlassContainer(
+                radius: 14,
+                blur: 8,
+                tint: Colors.white.withValues(alpha: esOscuro ? 0.14 : 0.9),
+                child: const SizedBox.expand(),
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              for (final (valor, texto) in [
+                (false, 'Iniciar sesión'),
+                (true, 'Crear cuenta'),
+              ])
+                Expanded(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => onCambio(valor),
+                    child: Center(
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 250),
+                        opacity: valor == registro ? 1 : 0.55,
+                        child: Text(
+                          texto,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),

@@ -5,6 +5,7 @@ import 'app/app_controller.dart';
 import 'app/app_scope.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'services/auth_service.dart';
 import 'services/pokemon_service.dart';
 import 'theme/app_theme.dart';
 import 'widgets/pokeball_3d.dart';
@@ -14,9 +15,11 @@ Future<void> main() async {
   final prefs = await SharedPreferences.getInstance();
   PokeballShader.cargar(); // Precarga el shader de las pokébolas 3D.
 
-  runApp(
-    PokedexApp(controller: AppController(prefs), service: PokemonService()),
-  );
+  final controller = AppController(prefs, AuthService());
+  // Revisa en segundo plano si la sesión guardada sigue activa.
+  controller.validarSesion();
+
+  runApp(PokedexApp(controller: controller, service: PokemonService()));
 }
 
 class PokedexApp extends StatelessWidget {

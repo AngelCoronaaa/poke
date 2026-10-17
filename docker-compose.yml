@@ -1,0 +1,31 @@
+# Para probar en local: docker compose up --build
+# Abre http://localhost:8080 (app web + API con PostgreSQL).
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pokedex
+      POSTGRES_PASSWORD: pokedex
+      POSTGRES_DB: pokedex
+    ports:
+      - "5432:5432"
+    volumes:
+      - pokedex-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pokedex"]
+      interval: 2s
+      retries: 15
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://pokedex:pokedex@db:5432/pokedex?sslmode=disable
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pokedex-db:

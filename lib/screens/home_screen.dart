@@ -927,7 +927,7 @@ class _DialogoCerrarSesion extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Se borrará tu licencia de entrenador de este dispositivo.',
+                'Podrás volver a entrar con tu nombre y contraseña.',
                 style: TextStyle(
                   color: scheme.onSurface.withValues(alpha: 0.6),
                 ),
