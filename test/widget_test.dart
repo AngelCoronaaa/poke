@@ -90,6 +90,34 @@ class _FakeService extends PokemonService {
 
   @override
   Future<bool> tieneModelo3D(int id) async => false;
+
+  @override
+  Future<List<PokemonResumen>> getLista() async => [
+    for (final (id, nombre) in [
+      (1, 'bulbasaur'),
+      (2, 'ivysaur'),
+      (4, 'charmander'),
+      (7, 'squirtle'),
+      (25, 'pikachu'),
+      (152, 'chikorita'),
+      (155, 'cyndaquil'),
+    ])
+      PokemonResumen(id: id, name: nombre),
+  ];
+
+  @override
+  Future<Map<int, List<PokemonType>>> getTipos() async => {
+    for (final (id, tipos) in [
+      (1, ['grass', 'poison']),
+      (2, ['grass', 'poison']),
+      (4, ['fire']),
+      (7, ['water']),
+      (25, ['electric']),
+      (152, ['grass']),
+      (155, ['fire']),
+    ])
+      id: tipos.map(PokemonType.fromName).toList(),
+  };
 }
 
 /// Las animaciones (pokébolas, figuras) son infinitas: se avanza el tiempo
@@ -451,7 +479,9 @@ void main() {
     expect(find.text('Movimientos'), findsOneWidget);
   });
 
-  testWidgets('Desde el inicio se abre la Pokédex y se navega', (tester) async {
+  testWidgets('La Pokédex muestra la lista y un Pokémon abre su ficha', (
+    tester,
+  ) async {
     final service = _FakeService();
     await _arrancar(tester, guardado: _cuentaMisty(), service: service);
 
@@ -459,9 +489,20 @@ void main() {
     await tester.tap(find.text('Pokédex'));
     await _esperar(tester);
 
+    // Lista con nombres, números y tipos; aún no se pidió ninguna ficha.
+    expect(find.text('7 Pokémon'), findsOneWidget);
     expect(find.text('Bulbasaur'), findsOneWidget);
-    expect(find.text('Planta'), findsOneWidget);
+    expect(find.text('#025'), findsOneWidget);
+    expect(find.text('Eléctrico'), findsWidgets);
+    expect(service.pedidos, isNot(contains('1')));
+
+    await tester.tap(find.text('Bulbasaur'));
+    await _esperar(tester);
+
+    // La ficha de siempre.
     expect(find.text('0.7 m'), findsOneWidget);
+    expect(find.text('Estadísticas base'), findsOneWidget);
+    expect(service.pedidos.last, '1');
 
     await tester.tap(find.byTooltip('Siguiente'));
     await _esperar(tester);
@@ -469,21 +510,46 @@ void main() {
 
     await tester.tap(find.byTooltip('Regresar'));
     await _esperar(tester);
-    expect(find.text('Pokéballs 3D'), findsOneWidget); // de vuelta en inicio
+    expect(find.text('7 Pokémon'), findsOneWidget); // de vuelta en la lista
   });
 
-  testWidgets('Una región abre la Pokédex en su primer Pokémon', (
+  testWidgets('La lista se filtra por búsqueda y por tipo', (tester) async {
+    await _arrancar(tester, guardado: _cuentaMisty());
+    await _irA(tester, 'Pokédex');
+    await tester.tap(find.text('Pokédex'));
+    await _esperar(tester);
+
+    await tester.enterText(find.byType(TextField), 'char');
+    await _esperar(tester, 2);
+    expect(find.text('Charmander'), findsOneWidget);
+    expect(find.text('Bulbasaur'), findsNothing);
+
+    await tester.enterText(find.byType(TextField), '#15');
+    await _esperar(tester, 2);
+    expect(find.text('Chikorita'), findsOneWidget);
+    expect(find.text('Cyndaquil'), findsOneWidget);
+    expect(find.text('Pikachu'), findsNothing);
+
+    await tester.enterText(find.byType(TextField), '');
+    await _tocar(tester, find.text('Fuego').first);
+    await _esperar(tester, 2);
+    expect(find.text('2 Pokémon'), findsOneWidget);
+    expect(find.text('Charmander'), findsOneWidget);
+    expect(find.text('Cyndaquil'), findsOneWidget);
+  });
+
+  testWidgets('Una región abre la lista filtrada por esa región', (
     tester,
   ) async {
-    final service = _FakeService();
-    await _arrancar(tester, guardado: _cuentaMisty(), service: service);
+    await _arrancar(tester, guardado: _cuentaMisty());
 
     await _irA(tester, 'Johto');
     await _tocar(tester, find.text('Johto'));
     await _esperar(tester);
 
-    expect(service.pedidos.last, '152');
+    expect(find.text('2 Pokémon · Johto'), findsOneWidget);
     expect(find.text('Chikorita'), findsOneWidget);
+    expect(find.text('Bulbasaur'), findsNothing);
   });
 
   testWidgets('La galería de pokébolas cambia de tipo y muestra la API', (

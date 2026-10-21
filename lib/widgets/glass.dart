@@ -113,6 +113,32 @@ class GlassContainer extends StatelessWidget {
     final relleno =
         tint ?? Colors.white.withValues(alpha: esOscuro ? 0.07 : 0.42);
 
+    // El relleno va en su propia capa: BoxDecoration ignora `color`
+    // cuando también recibe `gradient`.
+    final superficie = DecoratedBox(
+      decoration: BoxDecoration(borderRadius: borderRadius, color: relleno),
+      child: Container(
+        padding: padding,
+        decoration: BoxDecoration(
+          borderRadius: borderRadius,
+          border: Border.all(
+            color: Colors.white.withValues(alpha: esOscuro ? 0.13 : 0.8),
+          ),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            stops: const [0, 0.45, 1],
+            colors: [
+              Colors.white.withValues(alpha: esOscuro ? 0.12 : 0.45),
+              Colors.white.withValues(alpha: 0),
+              Colors.white.withValues(alpha: esOscuro ? 0.04 : 0.12),
+            ],
+          ),
+        ),
+        child: child,
+      ),
+    );
+
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: borderRadius,
@@ -128,37 +154,13 @@ class GlassContainer extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: borderRadius,
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-          // El relleno va en su propia capa: BoxDecoration ignora `color`
-          // cuando también recibe `gradient`.
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: borderRadius,
-              color: relleno,
-            ),
-            child: Container(
-              padding: padding,
-              decoration: BoxDecoration(
-                borderRadius: borderRadius,
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: esOscuro ? 0.13 : 0.8),
-                ),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  stops: const [0, 0.45, 1],
-                  colors: [
-                    Colors.white.withValues(alpha: esOscuro ? 0.12 : 0.45),
-                    Colors.white.withValues(alpha: 0),
-                    Colors.white.withValues(alpha: esOscuro ? 0.04 : 0.12),
-                  ],
-                ),
-              ),
-              child: child,
-            ),
-          ),
-        ),
+        // Con blur 0 se omite el desenfoque (más ligero en listas largas).
+        child: blur > 0
+            ? BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+                child: superficie,
+              )
+            : superficie,
       ),
     );
   }

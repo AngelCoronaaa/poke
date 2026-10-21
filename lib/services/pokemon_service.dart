@@ -37,6 +37,8 @@ class PokemonService {
   final Map<String, PokeballInfo> _cachePokeballs = {};
   final Map<int, bool> _cacheModelos = {};
   ResumenPokedex? _resumen;
+  List<PokemonResumen>? _lista;
+  Map<int, List<PokemonType>>? _tipos;
 
   /// Obtiene un Pokémon por número o por nombre,
   /// p. ej. `https://pokeapi.co/api/v2/pokemon/1/`.
@@ -52,6 +54,60 @@ class PokemonService {
     _cache['${pokemon.id}'] = pokemon;
     _cache[pokemon.name] = pokemon;
     return pokemon;
+  }
+
+  /// Número y nombre de todos los Pokémon, en una sola petición.
+  Future<List<PokemonResumen>> getLista() async {
+    final enCache = _lista;
+    if (enCache != null) return enCache;
+    final lista = await _ejecutar(() async {
+      final response = await _dio.get<Map<String, dynamic>>(
+        'pokemon-species/',
+        queryParameters: {'limit': total},
+      );
+      return (response.data!['results'] as List)
+          .map((e) => PokemonResumen.fromJson(e as Map<String, dynamic>))
+          .toList()
+        ..sort((a, b) => a.id.compareTo(b.id));
+    });
+    return _lista = lista;
+  }
+
+  /// Tipos de cada Pokémon (por número), armados con 18 peticiones
+  /// `type/<tipo>/` en lugar de una por Pokémon.
+  Future<Map<int, List<PokemonType>>> getTipos() async {
+    final enCache = _tipos;
+    if (enCache != null) return enCache;
+    final tipos = await _ejecutar(() async {
+      final porId = <int, List<(int, PokemonType)>>{};
+      await Future.wait(
+        PokemonType.todos.map((tipo) async {
+          final response = await _dio.get<Map<String, dynamic>>(
+            'type/${tipo.name}/',
+          );
+          for (final entrada in response.data!['pokemon'] as List) {
+            final resumen = PokemonResumen.fromJson(
+              entrada['pokemon'] as Map<String, dynamic>,
+            );
+            // Las formas alternativas tienen números arriba de 10000.
+            if (resumen.id > total) continue;
+            porId.putIfAbsent(resumen.id, () => []).add((
+              entrada['slot'] as int,
+              tipo,
+            ));
+          }
+        }),
+      );
+      return porId.map(
+        (id, lista) => MapEntry(
+          id,
+          (lista..sort((a, b) => a.$1.compareTo(b.$1)))
+              .map((e) => e.$2)
+              .toList(),
+        ),
+      );
+    });
+    return _tipos = tipos;
   }
 
   /// Conteos generales (Pokémon, movimientos, habilidades…) pedidos en paralelo.

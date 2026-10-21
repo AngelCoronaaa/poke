@@ -12,6 +12,7 @@ import '../widgets/glass.dart';
 import '../widgets/pokeball.dart';
 import '../widgets/pokeball_3d.dart';
 import '../widgets/theme_selector.dart';
+import 'pokedex_list_screen.dart';
 import 'pokeballs_screen.dart';
 import 'pokemon_screen.dart';
 
@@ -40,6 +41,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _abrirPokedex(int id) =>
       Navigator.of(context).push(rutaSuave(PokemonScreen(initialId: id)));
+
+  void _abrirLista([Region? region]) =>
+      Navigator.of(context).push(rutaSuave(PokedexListScreen(region: region)));
 
   Future<void> _cerrarSesion() async {
     final confirmar = await showDialog<bool>(
@@ -98,9 +102,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         Expanded(
                           child: _TarjetaExplorar(
                             titulo: 'Pokédex',
-                            subtitulo: 'Fichas, estadísticas y modelos 3D',
+                            subtitulo: 'Lista de los 1025 Pokémon con fichas y modelos 3D',
                             color: const Color(0xFFE3350D),
-                            onTap: () => _abrirPokedex(1),
+                            onTap: _abrirLista,
                             vista: Image.network(
                               Pokemon.artworkUrl(trainer.companero.id),
                               fit: BoxFit.contain,
@@ -144,7 +148,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const _Titulo(
                     'Regiones',
-                    subtitulo: 'Abre la Pokédex desde cada generación',
+                    subtitulo: 'Explora los Pokémon de cada generación',
                   ),
                   Aparecer(
                     orden: 5,
@@ -159,7 +163,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           final region = Region.todas[i];
                           return _TarjetaRegion(
                             region: region,
-                            onTap: () => _abrirPokedex(region.primero),
+                            onTap: () => _abrirLista(region),
                           );
                         },
                       ),

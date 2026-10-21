@@ -70,6 +70,31 @@ class Pokemon {
       types.isNotEmpty ? types.first.color : PokemonType.fallbackColor;
 }
 
+/// Entrada de la lista de la Pokédex (`pokemon-species?limit=…`): solo número
+/// y nombre; la ficha completa se pide al abrirla.
+class PokemonResumen {
+  final int id;
+  final String name;
+
+  const PokemonResumen({required this.id, required this.name});
+
+  /// `{"name": "bulbasaur", "url": ".../pokemon-species/1/"}`
+  factory PokemonResumen.fromJson(Map<String, dynamic> json) {
+    final url = json['url'] as String;
+    final segmentos = Uri.parse(url).pathSegments.where((s) => s.isNotEmpty);
+    return PokemonResumen(
+      id: int.parse(segmentos.last),
+      name: json['name'] as String,
+    );
+  }
+
+  String get displayName => _capitalizar(name.replaceAll('-', ' '));
+
+  String get number => '#${id.toString().padLeft(3, '0')}';
+
+  String get imageUrl => Pokemon.artworkUrl(id);
+}
+
 class PokemonStat {
   final String name;
   final int value;
@@ -138,6 +163,9 @@ class PokemonType {
     'steel': PokemonType._('steel', 'Acero', Color(0xFFB7B7CE)),
     'fairy': PokemonType._('fairy', 'Hada', Color(0xFFD685AD)),
   };
+
+  /// Los 18 tipos, en el orden habitual.
+  static List<PokemonType> get todos => _tipos.values.toList();
 
   factory PokemonType.fromName(String name) =>
       _tipos[name] ?? PokemonType._(name, _capitalizar(name), fallbackColor);
